@@ -1,0 +1,25 @@
+(define pair (lambda (x y) (lambda (m) (m x y)))) 
+(define first (lambda (x) (x (lambda (a b) a)))) 
+(define second (lambda (x) (x (lambda (a b) b))))
+(define [] (pair 1 1)) 
+(define empty? first) 
+(define : (lambda (hd tl) (pair 0 (pair hd tl)))) 
+(define head (lambda (xs) (first (second xs)))) 
+(define tail (lambda (xs) (second (second xs)))) 
+
+(define ++ 
+  (lambda (xs ys) 
+    (if (empty? xs) 
+      ys 
+      (: (head xs) (++ (tail xs) ys))))) 
+
+(define map 
+  (lambda (func xs) 
+    (if (empty? xs) 
+      [] 
+      (: (func (head xs)) (map func (tail xs))))))
+
+(define display-list (lambda (xs) (map display xs)))
+(define peter (: 5 (: 0 (: 2 (: 1 (: 6 []))))))
+; 5 0 2 1 6 
+(display-list peter) 
