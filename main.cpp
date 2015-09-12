@@ -19,7 +19,17 @@ using Parsers::anyChar;
 using Parsers::oneOf;
 using Parsers::satisfy;
 
-using Parsers::Token;
+class Token{
+  public:
+    enum Type{Undefine, Comment, Identifier, Constant, LeftBrace, RightBrace, EndOfFile} type;
+    std::string cargo;
+
+    Token() : type(Type::Undefine), cargo() {}
+    Token(Type t) : type(t), cargo() {}
+    Token(const std::string& str) : type(Type::Undefine), cargo(str) {}
+    Token(Type t, const std::string& str) : type(t), cargo(str) {}
+
+};
 
 Parser letter(satisfy([](char c){
   if(33 <= c && c <= 39) return true;
@@ -217,6 +227,7 @@ Object eval(Context& env, const Expression& expression){
     auto callee = eval(env, expression.args[0]);
     auto& func = callee.getF();
     return func(env, expression.args);
+  /*
   }else if(expression.type == Expression::Closure){
     Expressions vars = expression.args; vars.pop_back();
     Expression body = expression.args.back();
@@ -235,6 +246,7 @@ Object eval(Context& env, const Expression& expression){
       context1.add(env);
       return eval(context1, body);
     });
+  */
   }else if(expression.type == Expression::Comment){
     cout << expression.name << endl;
     return Object();
@@ -285,6 +297,25 @@ int main(int argc, char *argv[]){
     else
       context.add(args[1].name, rhs.getF());
     return rhs;
+  }).add("lambda", [](Context& env, Args args) -> Object{
+    assert(args.size() == 3);
+    Expressions vars = args[1].args;
+    Expression body = args[2];
+    return Object([env, vars, body](Context& context, const Expressions& args) mutable {
+      // remember that args[0] is the callee itself
+      for(int i = 1; i < args.size(); ++i){
+        Object res = eval(context, args[i]);
+        if(res.type == Object::Constant){
+          env.add(vars[i-1].name, res.getI());
+        }else{
+          env.add(vars[i-1].name, res.getF());
+        }
+      }
+      // Bind variables done
+      Context context1(context);
+      context1.add(env);
+      return eval(context1, body);
+    });
   });
 
   Tokenizer toker(cin);
@@ -310,6 +341,7 @@ Expression getExpression(Tokenizer& toker){
     return Expression(Expression::Identifier, token.cargo);
   }else if(token.type == Token::LeftBrace){
     Token ntok = toker.peekNextToken();
+    /*
     if(ntok.type == Token::Identifier && ntok.cargo == "lambda"){
       Expression expr(Expression::Closure);
       toker.getToken(); // "lambda"
@@ -325,6 +357,7 @@ Expression getExpression(Tokenizer& toker){
       toker.getToken(); // ")"
       return expr;
     }else{
+    */
       Expression expr(Expression::Ap);
       while(true){
         ntok = toker.peekNextToken();
@@ -335,7 +368,7 @@ Expression getExpression(Tokenizer& toker){
       }
       toker.getToken(); // ")"
       return expr;
-    }
+    //}
   }else if(token.type == Token::EndOfFile){
     return Expression();
   }

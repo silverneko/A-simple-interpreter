@@ -12,19 +12,6 @@ namespace Parsers{
 // Let us not pollute the namespace outside
 using namespace std;
 
-class Token{
-  public:
-    enum Type{Undefine, Comment, Identifier, Constant, LeftBrace, RightBrace, EndOfFile} type;
-    std::string cargo;
-
-    Token() : type(Type::Undefine), cargo() {}
-    Token(Type t) : type(t), cargo() {}
-    Token(const std::string& str) : type(Type::Undefine), cargo(str) {}
-    Token(Type t, const std::string& str) : type(t), cargo(str) {}
-
-};
-
-
 class Parser{
   public:
     using Iterator = std::string::iterator;
