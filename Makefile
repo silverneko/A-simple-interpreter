@@ -1,5 +1,5 @@
 CC = clang++
-CFLAGS = -std=c++11 -O2 -Wall
+CFLAGS = -std=c++11 -O2 -Wall -g
 
 all: main
 

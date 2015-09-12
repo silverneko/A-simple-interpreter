@@ -22,4 +22,4 @@
 (define display-list (lambda (xs) (map display xs)))
 (define peter (: 5 (: 0 (: 2 (: 1 (: 6 []))))))
 ; 5 0 2 1 6 
-(display-list peter) 
+; (display-list peter) 
