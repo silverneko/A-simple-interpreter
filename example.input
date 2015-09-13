@@ -1,6 +1,24 @@
+; 3 
+(display (+ 1 2)) 
+
+(define a 3) 
+; 7 
+(display (+ a 4)) 
+
+(define add1 (lambda (x) (+ x 1))) 
+; 6 
+(display (add1 5)) 
+
 (define pair (lambda (x y) (lambda (m) (m x y)))) 
 (define first (lambda (x) (x (lambda (a b) a)))) 
-(define second (lambda (x) (x (lambda (a b) b))))
+(define second (lambda (x) (x (lambda (a b) b)))) 
+
+(define a (pair 1 2)) 
+; 1 
+(display (first a)) 
+; 2 
+(display (second a)) 
+
 (define [] (pair 1 1)) 
 (define empty? first) 
 (define : (lambda (hd tl) (pair 0 (pair hd tl)))) 
@@ -8,18 +26,68 @@
 (define tail (lambda (xs) (second (second xs)))) 
 
 (define ++ 
-  (lambda (xs ys) 
-    (if (empty? xs) 
-      ys 
-      (: (head xs) (++ (tail xs) ys))))) 
+(lambda (xs ys) 
+(if (empty? xs) 
+ys 
+(: (head xs) (++ (tail xs) ys))))) 
 
 (define map 
-  (lambda (func xs) 
-    (if (empty? xs) 
-      [] 
-      (: (func (head xs)) (map func (tail xs))))))
+(lambda (func xs) 
+(if (empty? xs) 
+[] 
+(: (func (head xs)) (map func (tail xs)))))) 
 
-(define display-list (lambda (xs) (map display xs)))
-(define peter (: 5 (: 0 (: 2 (: 1 (: 6 []))))))
+(define display-list (lambda (xs) (map display xs))) 
+
+(define peter (: 5 (: 0 (: 2 (: 1 (: 6 [])))))) 
 ; 5 0 2 1 6 
-; (display-list peter) 
+(display-list peter) 
+
+(define filter 
+(lambda (pred xs) 
+(if (empty? xs) 
+[] 
+(begin 
+(define xs' (filter pred (tail xs))) 
+(if (pred (head xs)) 
+(: (head xs) xs') 
+xs'))))) 
+
+(define ! (lambda (x) (if x 0 1))) 
+(define <= (lambda (x y) (! (< y x)))) 
+(define > (lambda (x y) (< y x))) 
+(define sort 
+(lambda (xs) 
+(if (empty? xs) 
+[] 
+(begin 
+(define x (head xs)) 
+(define xs' (tail xs)) 
+(define <=x (filter (lambda (y) (<= y x)) xs')) 
+(define >x (filter (lambda (y) ( > y x)) xs')) 
+(++ (sort <=x) (: x (sort >x))))))) 
+
+; 0 1 2 5 6 
+(display-list (sort peter)) 
+
+(define take 
+(lambda (xs) 
+(lambda (n) 
+(if n 
+(: (head xs) ((take (tail xs)) (- n 1))) 
+[])))) 
+
+; 5 0 2 
+(display-list ((take peter) 3)) 
+(define take-peter (take peter)) 
+; 5 0 2 
+(display-list (take-peter 3)) 
+
+(define yin-yang 
+(lambda () 
+(lambda (m) 
+(m 0 (pair 0 (lambda (m) 
+(m 0 (pair 1 (yin-yang))))))))) 
+
+; 0 1 0 1 0 
+(display-list ((take (yin-yang)) 5)) 

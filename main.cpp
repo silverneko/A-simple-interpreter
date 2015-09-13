@@ -7,6 +7,7 @@
 #include <sstream>
 #include <map>
 #include <cassert>
+#include <memory>
 
 #include "Parsers.hpp"
 
@@ -218,41 +219,54 @@ class Context{
 };
 
 // eval :: Context -> Expression -> Object --May also change the context
-Object eval(Context& env, const Expression& expression){
-  if(expression.type == Expression::Identifier){
-    return env[ expression.name ];
-  }else if(expression.type == Expression::Constant){
-    return Object( fromString<int>(expression.name) );
-  }else if(expression.type == Expression::Ap){
-    auto callee = eval(env, expression.args[0]);
-    auto& func = callee.getF();
-    return func(env, expression.args);
-  /*
-  }else if(expression.type == Expression::Closure){
-    Expressions vars = expression.args; vars.pop_back();
-    Expression body = expression.args.back();
-    return Object([env, vars, body](Context& context, const Expressions& args) mutable {
-      // remember that args[0] is the callee itself
-      for(int i = 1; i < args.size(); ++i){
-        Object res = eval(context, args[i]);
-        if(res.type == Object::Constant){
-          env.add(vars[i-1].name, res.getI());
-        }else{
-          env.add(vars[i-1].name, res.getF());
-        }
+Object eval(Context&, const Expression&);
+
+template<class Pointee>
+class SmartPointer{
+  using Pointer = SmartPointer<Pointee>;
+  Pointee *_pointee;
+  int *_pointed;
+
+  public:
+    SmartPointer() : _pointee(nullptr), _pointed(new int(0)) {}
+    SmartPointer(Pointee* pointee) : _pointee(pointee), _pointed(new int(1)) {}
+    SmartPointer(const Pointer& pointer): _pointee(pointer._pointee), _pointed(pointer._pointed){
+      ++(*_pointed);
+    }
+
+    Pointee& operator * (){
+      return *_pointee;
+    }
+
+    Pointer& operator = (const Pointer& pointer){
+      this->reset();
+      _pointee = pointer._pointee;
+      _pointed = pointer._pointed;
+      ++(*_pointed);
+      return *this;
+    }
+
+    Pointer& reset(){
+      --(*_pointed);
+      if((*_pointed) == 0){
+        if(_pointee != nullptr)
+          delete _pointee;
       }
-      // Bind variables done
-      Context context1(context);
-      context1.add(env);
-      return eval(context1, body);
-    });
-  */
-  }else if(expression.type == Expression::Comment){
-    cout << expression.name << endl;
-    return Object();
-  }
-  return Object();
-}
+      _pointed = new int(1);
+      _pointee = nullptr;
+      return *this;
+    }
+
+    ~SmartPointer(){
+      --(*_pointed);
+      if((*_pointed) == 0){
+        if(_pointee != nullptr)
+          delete _pointee;
+        delete _pointed;
+      }
+    }
+
+};
 
 int main(int argc, char *argv[]){
   using Args = const Expressions&;
@@ -301,8 +315,12 @@ int main(int argc, char *argv[]){
     assert(args.size() == 3);
     Expressions vars = args[1].args;
     Expression body = args[2];
-    return Object([env, vars, body](Context& context, const Expressions& args) mutable {
+    // shared_ptr<Context> _env(new Context(env));
+    SmartPointer<Context> _env(new Context(env));
+    return Object([_env, vars, body](Context& context, const Expressions& args) mutable {
       // remember that args[0] is the callee itself
+      Context env(*_env);
+      _env.reset();
       for(int i = 1; i < args.size(); ++i){
         Object res = eval(context, args[i]);
         if(res.type == Object::Constant){
@@ -331,6 +349,22 @@ int main(int argc, char *argv[]){
   return 0;
 }
 
+Object eval(Context& env, const Expression& expression){
+  if(expression.type == Expression::Identifier){
+    return env[ expression.name ];
+  }else if(expression.type == Expression::Constant){
+    return Object( fromString<int>(expression.name) );
+  }else if(expression.type == Expression::Ap){
+    auto callee = eval(env, expression.args[0]);
+    auto& func = callee.getF();
+    return func(env, expression.args);
+  }else if(expression.type == Expression::Comment){
+    cout << expression.name << endl;
+    return Object();
+  }
+  return Object();
+}
+
 Expression getExpression(Tokenizer& toker){
   Token token = toker.getToken();
   if(token.type == Token::Comment){
@@ -341,34 +375,16 @@ Expression getExpression(Tokenizer& toker){
     return Expression(Expression::Identifier, token.cargo);
   }else if(token.type == Token::LeftBrace){
     Token ntok = toker.peekNextToken();
-    /*
-    if(ntok.type == Token::Identifier && ntok.cargo == "lambda"){
-      Expression expr(Expression::Closure);
-      toker.getToken(); // "lambda"
-      toker.getToken(); // "("
-      while(true){
-        ntok = toker.getToken();
-        if(ntok.type == Token::RightBrace)
-          break;       // ")"
-        assert(ntok.type == Token::Identifier);
-        expr.args.emplace_back(Expression::Identifier, ntok.cargo);
+    Expression expr(Expression::Ap);
+    while(true){
+      ntok = toker.peekNextToken();
+      if(ntok.type == Token::RightBrace){
+        break;
       }
-      expr.args.push_back( getExpression(toker) ); // The `body` of closure
-      toker.getToken(); // ")"
-      return expr;
-    }else{
-    */
-      Expression expr(Expression::Ap);
-      while(true){
-        ntok = toker.peekNextToken();
-        if(ntok.type == Token::RightBrace){
-          break;
-        }
-        expr.args.push_back( getExpression(toker) );
-      }
-      toker.getToken(); // ")"
-      return expr;
-    //}
+      expr.args.push_back( getExpression(toker) );
+    }
+    toker.getToken(); // Discard right brace ")"
+    return expr;
   }else if(token.type == Token::EndOfFile){
     return Expression();
   }
