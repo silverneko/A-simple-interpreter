@@ -148,7 +148,7 @@ class Expression{
       return string(2 * i, ' ');
     }
   public:
-    enum Type{Nothing, Ap, Identifier, Constant, Closure, Comment} type;
+    enum Type{Nothing, Ap, Identifier, Constant, Comment} type;
     std::string name;
     Expressions args;
 
@@ -168,27 +168,39 @@ Expression getExpression(Tokenizer&);
 class Object{
   public:
     using Func = function<Object (Context&, const Expressions&)>;
-    enum Type{Nothing, Closure, Constant} type;
+    enum Type {Nothing, Closure, Constant, Thunk};
   private:
+    Type _type;
     int _value;
     Func _func;
+    Expression _thunk;
   public:
-    Object() : type(Nothing) {}
-    Object(int i) : type(Constant), _value(i) {}
-    Object(Func func) : type(Closure), _func(func) {}
+    Object() : _type(Nothing) {}
+
+    Object(int i) : _type(Constant), _value(i) {}
+    Object(const Func& func) : _type(Closure), _func(func) {}
+    Object(const Expression& thunk) : _type(Thunk), _thunk(thunk) {}
+
+    Type type() const { return _type;}
 
     Object operator () (Context& context, const Expressions& args){
+      assert(_type == Closure);
       return _func(context, args);
     }
 
     int& getI(){
-      assert(type == Constant);
+      assert(_type == Constant);
       return _value;
     }
 
     Func& getF(){
-      assert(type == Closure);
+      assert(_type == Closure);
       return _func;
+    }
+
+    Expression& getT(){
+      assert(_type == Thunk);
+      return _thunk;
     }
 };
 
@@ -211,6 +223,11 @@ class Context{
       return *this;
     }
 
+    Context& add(const string& str, const Object& obj){
+      _table[str] = obj;
+      return *this;
+    }
+
     Context& add(const Context& context){
       for(const auto& cont : context._table)
         _table[cont.first] = cont.second;
@@ -221,52 +238,17 @@ class Context{
 // eval :: Context -> Expression -> Object --May also change the context
 Object eval(Context&, const Expression&);
 
-template<class Pointee>
-class SmartPointer{
-  using Pointer = SmartPointer<Pointee>;
-  Pointee *_pointee;
-  int *_pointed;
-
-  public:
-    SmartPointer() : _pointee(nullptr), _pointed(new int(0)) {}
-    SmartPointer(Pointee* pointee) : _pointee(pointee), _pointed(new int(1)) {}
-    SmartPointer(const Pointer& pointer): _pointee(pointer._pointee), _pointed(pointer._pointed){
-      ++(*_pointed);
-    }
-
-    Pointee& operator * (){
-      return *_pointee;
-    }
-
-    Pointer& operator = (const Pointer& pointer){
-      this->reset();
-      _pointee = pointer._pointee;
-      _pointed = pointer._pointed;
-      ++(*_pointed);
-      return *this;
-    }
-
-    Pointer& reset(){
-      --(*_pointed);
-      if((*_pointed) == 0){
-        if(_pointee != nullptr)
-          delete _pointee;
-      }
-      _pointed = new int(1);
-      _pointee = nullptr;
-      return *this;
-    }
-
-    ~SmartPointer(){
-      --(*_pointed);
-      if((*_pointed) == 0){
-        if(_pointee != nullptr)
-          delete _pointee;
-        delete _pointed;
-      }
-    }
-
-};
+void alter(const std::map<std::string, Expression>& args, Expression& expression){
+  if(expression.type == Expression::Identifier){
+    auto it = args.find(expression.name);
+    if(it != args.end())
+      expression = it->second;
+  }else if(expression.type == Expression::Ap){
+    for_each(expression.args.begin(), expression.args.end(), [&args](Expression& expr){
+      alter(args, expr);
+    });
+  }
+}
 
 int main(int argc, char *argv[]){
   using Args = const Expressions&;
@@ -305,34 +287,42 @@ int main(int argc, char *argv[]){
     return eval(context, args[3]);
   }).add("define", [](Context& context, Args args) -> Object{
     assert(args.size() == 3);
+    auto lhs = args[1].name;
     auto rhs = eval(context, args[2]);
-    if(rhs.type == Object::Constant)
-      context.add(args[1].name, rhs.getI());
-    else
-      context.add(args[1].name, rhs.getF());
+    context.add(lhs, rhs);
     return rhs;
   }).add("lambda", [](Context& env, Args args) -> Object{
     assert(args.size() == 3);
-    Expressions vars = args[1].args;
-    Expression body = args[2];
-    // shared_ptr<Context> _env(new Context(env));
-    SmartPointer<Context> _env(new Context(env));
-    return Object([_env, vars, body](Context& context, const Expressions& args) mutable {
+    shared_ptr<Expressions> _vars(new Expressions(args[1].args));
+    shared_ptr<Expression> _body(new Expression(args[2]));
+    shared_ptr<Context> _env(new Context(env));
+    return Object([_env, _vars, _body](Context& context, Args args) mutable {
       // remember that args[0] is the callee itself
+      Expressions& vars(*_vars);
+      Expression& body(*_body);
       Context env(*_env);
-      _env.reset();
       for(int i = 1; i < args.size(); ++i){
         Object res = eval(context, args[i]);
-        if(res.type == Object::Constant){
-          env.add(vars[i-1].name, res.getI());
-        }else{
-          env.add(vars[i-1].name, res.getF());
-        }
+        env.add(vars[i-1].name, res);
       }
       // Bind variables done
       Context context1(context);
       context1.add(env);
       return eval(context1, body);
+    });
+  }).add("macro", [](Context& env, Args args) -> Object{
+    assert(args.size() == 3);
+    Expressions vars = args[1].args;
+    Expression body = args[2];
+    return Object([vars, body](Context& context, Args args) mutable {
+      // remember that args[0] is the callee itself
+      map<string, Expression> table;
+      for(int i = 1; i < args.size(); ++i){
+        table[ vars[i-1].name ] = args[i];
+      }
+      alter(table, body);
+      // Variables substitution done
+      return eval(context, body);
     });
   });
 
@@ -412,15 +402,6 @@ void Expression::print(int indent) const {
       break;
     case Constant:
       cout << ws(indent) << "Constant" << " \"" << name << "\"" << endl;
-      break;
-    case Closure:
-      cout << ws(indent) << "Closure" << " (";
-      for(int i = 0; i < args.size() - 1; ++i){
-        cout << " \"" << args[i].name << "\"";
-      }
-      cout << " ) (" << endl;
-      args.back().print(indent + 1);
-      cout << ws(indent) << ")" << endl;
       break;
     case Comment:
       break;
